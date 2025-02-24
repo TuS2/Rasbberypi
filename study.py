@@ -12,9 +12,7 @@ input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
 # Load and preprocess the image
-image_path = "square_190.png" #square
-# image_path = "test.jpg" #triangle
-# image_path = "test1.jpg" #circle
+image_path = "square_190.png"
 image = cv2.imread(image_path, cv2.IMREAD_COLOR)  # Load in RGB mode
 
 # Convert image to grayscale and apply threshold to detect black shapes
@@ -52,9 +50,13 @@ interpreter.set_tensor(input_details[0]['index'], image)
 interpreter.invoke()
 output_data = interpreter.get_tensor(output_details[0]['index'])
 
+# Print confidence scores
+class_labels = ["Square","Triangle" , "Circle"]  # Assumes these correspond to the first 3 indices
+confidence_scores = output_data[0][:3]
+print(f"Confidence scores: {confidence_scores}")
+
 # Interpret the result
-class_labels = ["Square", "Triangle", "Circle"]  # Assumes these correspond to the first 3 indices
-predicted_class = np.argmax(output_data[0][:3])  # Select from first 3 output classes
+predicted_class = np.argmax(confidence_scores)  # Select from first 3 output classes
 
 # Print only the shape name
 print(class_labels[predicted_class])
