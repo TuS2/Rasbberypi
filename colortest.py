@@ -1,76 +1,41 @@
-import tflite_runtime.interpreter as tflite
-import numpy as np
 import cv2
+import numpy as np
 
-# Load the TFLite model
-model_path = "model.tflite"
-interpreter = tflite.Interpreter(model_path=model_path)
-interpreter.allocate_tensors()
-
-# Get model input details
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-
-# Load and preprocess the image
-image_path = "circle_1.jpg"
+# Load the image
+image_path = "5330489452029668396.jpg"
 image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
-# Convert to grayscale and apply adaptive threshold
+# Convert to grayscale
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV, 11, 1)
-# thresh = cv2.inRange(image, (180, 0, 0), (0, 0, 180))
+
+# Apply Gaussian blur to remove noise
+blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+# Use Canny edge detection
+edges = cv2.Canny(blurred, 50, 150)
 
 # Find contours
-contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-if len(contours) == 0:
+contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+if not contours:
     raise ValueError("No shape detected in the image")
 
-# Find the largest contour (assumed to be the main shape)
+# Find the largest contour with significant area
 largest_contour = max(contours, key=cv2.contourArea)
+if cv2.contourArea(largest_contour) < 1000:
+    raise ValueError("No sufficiently large shape detected")
 
-# Create a mask to extract the shape
-mask = np.zeros_like(gray)
-cv2.drawContours(mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
-
-# Convert mask to 3 channels
-mask_colored = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-
-# Apply mask to extract the shape
-extracted = cv2.bitwise_and(image, mask_colored)
-
-# Get bounding box and crop the shape
+# Get bounding box and crop the shape tightly
 x, y, w, h = cv2.boundingRect(largest_contour)
-cropped_shape = extracted[y:y+h, x:x+w]
+cropped_shape = image[y:y+h, x:x+w]
 
-# Save the extracted shape
-cv2.imwrite("cut.png", cropped_shape)
+# Create a mask for the extracted shape
+shape_mask = np.zeros((h, w), dtype=np.uint8)
+cv2.drawContours(shape_mask, [largest_contour - [x, y]], -1, 255, thickness=cv2.FILLED)
 
-# Resize while maintaining aspect ratio
-input_size = input_details[0]['shape'][1]
-aspect_ratio = max(w, h) / input_size
-new_w, new_h = int(w / aspect_ratio), int(h / aspect_ratio)
-cropped_resized = cv2.resize(cropped_shape, (new_w, new_h))
+# Apply mask to get a clean cutout
+cutout = cv2.bitwise_and(cropped_shape, cropped_shape, mask=shape_mask)
 
-# Pad to square
-padded = np.ones((input_size, input_size, 3), dtype=np.uint8) * 255
-x_offset = (input_size - new_w) // 2
-y_offset = (input_size - new_h) // 2
-padded[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = cropped_resized
+# Save the improved cutout
+cv2.imwrite("clean_cut.png", cutout)
 
-# Normalize and add batch dimension
-image_input = padded.astype(np.float32) / 255.0
-image_input = np.expand_dims(image_input, axis=0)
-
-# Run inference
-interpreter.set_tensor(input_details[0]['index'], image_input)
-interpreter.invoke()
-output_data = interpreter.get_tensor(output_details[0]['index'])
-
-# Interpret the result
-class_labels = ["Circle", "Square", "Triangle"]
-confidence_scores = output_data[0][:3]
-predicted_class = np.argmax(confidence_scores)
-
-# Print results
-print(f"Confidence scores: {confidence_scores}")
-print(class_labels[predicted_class])
+print("Shape extracted and saved as 'clean_cut.png'")

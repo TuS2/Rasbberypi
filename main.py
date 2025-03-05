@@ -2,6 +2,45 @@ import tflite_runtime.interpreter as tflite
 import numpy as np
 import cv2
 
+# cut
+image_path = "5330394477417851771.jpg"
+image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+
+# Convert to grayscale
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# Apply Gaussian blur to remove noise
+blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+# Use Canny edge detection
+edges = cv2.Canny(blurred, 50, 150)
+
+# Find contours
+contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+if not contours:
+    raise ValueError("No shape detected in the image")
+
+# Find the largest contour with significant area
+largest_contour = max(contours, key=cv2.contourArea)
+if cv2.contourArea(largest_contour) < 1000:
+    raise ValueError("No sufficiently large shape detected")
+
+# Get bounding box and crop the shape tightly
+x, y, w, h = cv2.boundingRect(largest_contour)
+cropped_shape = image[y:y + h, x:x + w]
+
+# Create a mask for the extracted shape
+shape_mask = np.zeros((h, w), dtype=np.uint8)
+cv2.drawContours(shape_mask, [largest_contour - [x, y]], -1, 255, thickness=cv2.FILLED)
+
+# Apply mask to get a clean cutout
+cutout = cv2.bitwise_and(cropped_shape, cropped_shape, mask=shape_mask)
+
+# Save the improved cutout
+cv2.imwrite("clean_cut.png", cutout)
+
+print("Shape extracted and saved as 'clean_cut.png'")
+
 # Load the TFLite model
 model_path = "model.tflite"
 interpreter = tflite.Interpreter(model_path=model_path)
@@ -12,7 +51,7 @@ input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
 # Load and preprocess the image
-image_path = "circle_1.jpg"
+image_path = "clean_cut.png"
 image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
 # Convert to HSV color space
@@ -29,7 +68,7 @@ color_ranges = {
 mask = np.zeros_like(hsv[:, :, 0])
 for color, ranges in color_ranges.items():
     for i in range(0, len(ranges), 2):
-        lower, upper = ranges[i], ranges[i+1]
+        lower, upper = ranges[i], ranges[i + 1]
         mask |= cv2.inRange(hsv, np.array(lower), np.array(upper))
 
 # Find contours
@@ -57,11 +96,11 @@ extracted = cv2.bitwise_and(image, image, mask=shape_mask)
 
 # Get bounding box and crop the shape
 x, y, w, h = cv2.boundingRect(largest_contour)
-cropped_shape = extracted[y:y+h, x:x+w]
+cropped_shape = extracted[y:y + h, x:x + w]
 
 # Add alpha channel for transparency
 b, g, r = cv2.split(cropped_shape)
-alpha = shape_mask[y:y+h, x:x+w]
+alpha = shape_mask[y:y + h, x:x + w]
 cutout = cv2.merge([b, g, r, alpha])
 
 # Save the extracted shape with transparency
@@ -77,7 +116,7 @@ cropped_resized = cv2.resize(cropped_shape, (new_w, new_h))
 padded = np.ones((input_size, input_size, 3), dtype=np.uint8) * 255
 x_offset = (input_size - new_w) // 2
 y_offset = (input_size - new_h) // 2
-padded[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = cropped_resized
+padded[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = cropped_resized
 
 # Normalize and add batch dimension
 image_input = padded.astype(np.float32) / 255.0
