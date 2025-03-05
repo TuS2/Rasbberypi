@@ -1,9 +1,19 @@
 import tflite_runtime.interpreter as tflite
 import numpy as np
 import cv2
+from picamera2 import Picamera2, Preview
+import time
 
+picam2 = Picamera2()
+camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
+                                                  display="lores")
+picam2.configure(camera_config)
+picam2.start_preview(Preview.QTGL)
+picam2.start()
+time.sleep(2)
+picam2.capture_file("test.jpg")
 # cut
-image_path = "5330394477417851771.jpg"
+image_path = "test.jpg"
 image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
 # Convert to grayscale
@@ -22,7 +32,7 @@ if not contours:
 
 # Find the largest contour with significant area
 largest_contour = max(contours, key=cv2.contourArea)
-if cv2.contourArea(largest_contour) < 1000:
+if cv2.contourArea(largest_contour) < 500:
     raise ValueError("No sufficiently large shape detected")
 
 # Get bounding box and crop the shape tightly
