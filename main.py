@@ -4,22 +4,14 @@ import cv2
 from picamera2 import Picamera2, Preview
 import time
 
-picam2 = Picamera2()
-camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
-                                                  display="lores")
-picam2.configure(camera_config)
-picam2.start_preview(Preview.QTGL)
-picam2.start()
-time.sleep(2)
-picam2.capture_file("test.jpg")
-# cut
-image_path = "test.jpg"
+# Load image`
+image_path = "test123.png"
 image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
 # Convert to grayscale
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# Apply Gaussian blur to remove noise
+# Apply Gaussian blur
 blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
 # Use Canny edge detection
@@ -35,21 +27,26 @@ largest_contour = max(contours, key=cv2.contourArea)
 if cv2.contourArea(largest_contour) < 500:
     raise ValueError("No sufficiently large shape detected")
 
-# Get bounding box and crop the shape tightly
+# Get bounding box
 x, y, w, h = cv2.boundingRect(largest_contour)
-cropped_shape = image[y:y + h, x:x + w]
 
-# Create a mask for the extracted shape
-shape_mask = np.zeros((h, w), dtype=np.uint8)
-cv2.drawContours(shape_mask, [largest_contour - [x, y]], -1, 255, thickness=cv2.FILLED)
+# Compute the center of the detected shape
+center_x = x + w // 2
+center_y = y + h // 2
 
-# Apply mask to get a clean cutout
-cutout = cv2.bitwise_and(cropped_shape, cropped_shape, mask=shape_mask)
+# Define reference points
+origin = (0, 0)  # Top-left corner of the image
+center = (center_x, center_y)  # Center of the detected shape
 
-# Save the improved cutout
-cv2.imwrite("clean_cut.png", cutout)
+# Draw points on the image for visualization
+cv2.circle(image, origin, 5, (0, 0, 255), -1)  # Red dot at (0,0)
+image = cv2.circle(image, center, 5, (0, 0, 0), -1)  # Blue dot at center of the shape
 
-print("Shape extracted and saved as 'clean_cut.png'")
+# Save and display image with marked points
+cv2.imwrite("output_with_points.jpg", image)
+print(f"Reference points: Origin {origin}, Center {center}")
+
+# Continue with the existing TFLite model processing
 
 # Load the TFLite model
 model_path = "model.tflite"
@@ -138,7 +135,7 @@ interpreter.invoke()
 output_data = interpreter.get_tensor(output_details[0]['index'])
 
 # Interpret the result
-class_labels = ["Circle", "Square", "Triangle"]
+class_labels = ["Circle", "Square"]
 confidence_scores = output_data[0][:3]
 predicted_class = np.argmax(confidence_scores)
 
