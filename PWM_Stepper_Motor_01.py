@@ -24,29 +24,20 @@ try:
 	"""Change Direction: Changing direction requires time to switch. The
 	time is dictated by the stepper motor and controller. """
 	GPIO.output(DIR, 0)
-	sleep(1.0)
-	# Esablish the direction you want to go
-
-
-	# Run for 200 steps. This will change based on how you set you controller
-	for x in range(50000):
-		# Set one coil winding to high
-		GPIO.output(STEP, 1)
-		# Allow it to get there.
-		sleep(STEP_PULSE / 1000000) # Dictates how fast stepper motor will run
-		# Set coil winding to low
-		GPIO.output(STEP, 0)
-		sleep(STEP_DELAY / 1000000) # Dictates how fast stepper motor will run
-
-	"""Change Direction: Changing direction requires time to switch. The
-	time is dictated by the stepper motor and controller. """
-	sleep(1.0)
-	GPIO.output(DIR, 0)
-	for x in range(500):
+	sleep(1)
+	for x in range(100):
 		GPIO.output(STEP, 1)
 		sleep(STEP_PULSE / 1000000)
 		GPIO.output(STEP, 0)
 		sleep(STEP_DELAY / 1000000)
+
+	# sleep(1.0)
+	# GPIO.output(DIR, 0)
+	# for x in range(500):
+	# 	GPIO.output(STEP, 1)
+	# 	sleep(STEP_PULSE / 1000000)
+	# 	GPIO.output(STEP, 0)
+	# 	sleep(STEP_DELAY / 1000000)
 
 # Once finished clean everything up
 except KeyboardInterrupt:
