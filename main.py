@@ -3,7 +3,16 @@ import numpy as np
 import cv2
 from picamera2 import Picamera2, Preview
 import time
-
+picam2 = Picamera2()
+camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
+                                                  display="lores")
+picam2.configure(camera_config)
+picam2.start_preview(Preview.QTGL)
+picam2.start()
+time.sleep(2)
+picam2.capture_file("test.jpg")
+# cut
+image_path = "test.jpg"
 # Функция для определения типа фигуры
 def detect_shape(contour):
     approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
@@ -19,7 +28,7 @@ def detect_shape(contour):
         return "Unknown"
 
 # Загружаем изображение
-image_path = "2shapes.png"
+# image_path = "2shapes.png"
 image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
 # Преобразуем в градации серого

@@ -26,16 +26,16 @@ try:
 
 	"""Change Direction: Changing direction requires time to switch. The
 	time is dictated by the stepper motor and controller. """
-	# GPIO.output(DIR, 1)
-	# GPIO.output(DIR_1, 1)
-	# sleep(1)
-	# for x in range(1125):
-	# 	GPIO.output(STEP, 1)
-	# 	GPIO.output(STEP_1, 1)
-	# 	sleep(STEP_PULSE / 1000000)
-	# 	GPIO.output(STEP, 0)
-	# 	GPIO.output(STEP_1, 0)
-	# 	sleep(STEP_DELAY / 1000000)
+	GPIO.output(DIR, 0)
+	GPIO.output(DIR_1, 0)
+	sleep(1)
+	for x in range(1120):
+		GPIO.output(STEP, 1)
+		GPIO.output(STEP_1, 1)
+		sleep(STEP_PULSE / 1000000)
+		GPIO.output(STEP, 0)
+		GPIO.output(STEP_1, 0)
+		sleep(STEP_DELAY / 1000000)
 
 	sleep(1.0)
 	GPIO.output(DIR, 1)
