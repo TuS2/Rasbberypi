@@ -5,12 +5,11 @@ import numpy as np
 from picamera2 import Picamera2, Preview
 from math import atan, degrees
 
+time.sleep(2)
 # === НАСТРОЙКИ === #
-CAMERA_WIDTH = 1920
-CAMERA_HEIGHT = 1080
-BOARD_WIDTH_CM = 300   # Ширина доски в см
+BOARD_WIDTH_CM = 275   # Ширина доски в см
 BOARD_HEIGHT_CM = 100  # Высота доски в см
-STEP_ANGLE = 0.1607    # градуса на шаг
+STEP_ANGLE = 0.3   # градуса на шаг
 STEP_DELAY = 0.001
 MIN_CONTOUR_AREA = 500
 FILTER_SHAPE = "Circle"
@@ -27,7 +26,7 @@ STEP_Y = 1
 
 # Ограничения по углам моторов
 MAX_X_ANGLE = 45
-MAX_Y_ANGLE = 20
+MAX_Y_ANGLE = 45
 
 # === НАСТРОЙКА GPIO === #
 GPIO.setmode(GPIO.BCM)
@@ -104,24 +103,26 @@ def detect_shape(contour):
 
 # === ГЛАВНАЯ ЛОГИКА === #
 try:
-    distance = 200
+    distance = 300 #measure_distance()
     if distance:
         print(f"\n📏 Расстояние до доски: {distance:.2f} см")
     else:
         raise Exception("Не удалось измерить расстояние")
 
     # Фото
-    # picam2 = Picamera2()
-    # config = picam2.create_still_configuration(main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT)}, lores={"size": (640, 480)}, display="lores")
-    # picam2.configure(config)
-    # picam2.start_preview(Preview.QTGL)
-    # picam2.start()
-    # time.sleep(2)
-    # picam2.capture_file("capture.jpg")
-    # print("📷 Фото сделано")
+    picam2 = Picamera2()
+    camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
+                                                      display="lores")
+    picam2.configure(camera_config)
+    picam2.start()
+    time.sleep(2)
+    picam2.capture_file("capture.jpg")
+    print("📷 Фото сделано")
 
     # Обработка
-    image = cv2.imread("2shapes.png")
+    image = cv2.imread("capture.jpg")
+    height, width = image.shape[:2]
+
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 50, 150)
@@ -142,11 +143,11 @@ try:
 
         print(f"[{i}] {shape} в пикселях: ({center_x}, {center_y})")
 
-        dx_pixels = center_x - (CAMERA_WIDTH / 2)
-        dy_pixels = center_y - (CAMERA_HEIGHT / 2)
+        dx_pixels = center_x - (width / 2)
+        dy_pixels = center_y - (height / 2)
 
-        dx_cm = dx_pixels * (BOARD_WIDTH_CM / CAMERA_WIDTH)
-        dy_cm = dy_pixels * (BOARD_HEIGHT_CM / CAMERA_HEIGHT)
+        dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
+        dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
 
         angle_x = degrees(atan(dx_cm / distance))
         angle_y = degrees(atan(dy_cm / distance))
@@ -158,7 +159,7 @@ try:
 
         print("   ↩️ Возврат к центру")
         rotate_motor(-angle_x, -angle_y)
-        time.sleep(2)
+        cv2.imwrite("cut.png", image)
 
 finally:
     GPIO.output(DIR_X, GPIO.LOW)
