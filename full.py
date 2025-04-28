@@ -5,11 +5,10 @@ import numpy as np
 from picamera2 import Picamera2, Preview
 from math import atan, degrees
 
-time.sleep(2)
 # === НАСТРОЙКИ === #
-BOARD_WIDTH_CM = 275   # Ширина доски в см
-BOARD_HEIGHT_CM = 100  # Высота доски в см
-STEP_ANGLE = 0.3   # градуса на шаг
+BOARD_WIDTH_CM = 60   # ширина доски в см
+BOARD_HEIGHT_CM = 40  # высота доски в см
+STEP_ANGLE = 0.32727  # угол за один шаг (с ременной передачей)
 STEP_DELAY = 0.001
 MIN_CONTOUR_AREA = 500
 FILTER_SHAPE = "Circle"
@@ -50,44 +49,92 @@ def measure_distance():
     timeout = time.time() + 1
     while GPIO.input(ECHO) == 0:
         start = time.time()
-        if start > timeout:
+        if time.time() > timeout:
+            print("Timeout (start)")
             return None
 
-    timeout = time.time() + 0.02
+    timeout = time.time() + 1
     while GPIO.input(ECHO) == 1:
         stop = time.time()
-        if stop > timeout:
+        if time.time() > timeout:
+            print("Timeout (stop)")
             return None
 
     elapsed = stop - start
-    return (elapsed * 34300) / 2
+    distance = (elapsed * 34300) / 2
+    return distance
+
+# === ВЫРЕЗАТЬ ДОСКУ === #
+def extract_board(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edged = cv2.Canny(blurred, 50, 150)
+
+    contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    board_contour = None
+    max_area = 0
+
+    for contour in contours:
+        approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
+        if len(approx) == 4:
+            area = cv2.contourArea(approx)
+            if area > max_area:
+                max_area = area
+                board_contour = approx
+
+    if board_contour is None:
+        print("📛 Доска не найдена.")
+        return image
+
+    pts = board_contour.reshape(4, 2)
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]  # top-left
+    rect[2] = pts[np.argmax(s)]  # bottom-right
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]  # top-right
+    rect[3] = pts[np.argmax(diff)]  # bottom-left
+
+    width, height = 640, 480
+    dst = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
+    matrix = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, matrix, (width, height))
+    return warped
 
 # === МОТОРЫ === #
 def rotate_motor(degree_x, degree_y):
     degree_x = max(-MAX_X_ANGLE, min(MAX_X_ANGLE, degree_x))
-    degree_y = max(-MAX_Y_ANGLE, min(MAX_Y_ANGLE, degree_y))
+    degree_y = max(0, min(MAX_Y_ANGLE, degree_y))  # Только вверх!
 
     steps_x = round(abs(degree_x) / STEP_ANGLE)
     steps_y = round(abs(degree_y) / STEP_ANGLE)
 
     if steps_x == 0 and steps_y == 0:
         print("⚠️ Шагов слишком мало, пропускаем поворот")
-        return
+        return (0, 0)
 
     print(f"   🔁 Шагов X: {steps_x}, Y: {steps_y}")
 
+    # Устанавливаем направления
     GPIO.output(DIR_X, GPIO.HIGH if degree_x > 0 else GPIO.LOW)
     GPIO.output(DIR_Y, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
 
-    for step in range(max(steps_x, steps_y)):
-        if step < steps_x:
-            GPIO.output(STEP_X, GPIO.HIGH)
-        if step < steps_y:
-            GPIO.output(STEP_Y, GPIO.HIGH)
+    # Двигаем по X
+    for _ in range(steps_x):
+        GPIO.output(STEP_X, GPIO.HIGH)
         time.sleep(STEP_DELAY)
         GPIO.output(STEP_X, GPIO.LOW)
+        time.sleep(STEP_DELAY)
+
+    # Двигаем по Y
+    for _ in range(steps_y):
+        GPIO.output(STEP_Y, GPIO.HIGH)
+        time.sleep(STEP_DELAY)
         GPIO.output(STEP_Y, GPIO.LOW)
         time.sleep(STEP_DELAY)
+
+
+
 
 # === ОПРЕДЕЛЕНИЕ ФИГУР === #
 def detect_shape(contour):
@@ -109,21 +156,20 @@ try:
     else:
         raise Exception("Не удалось измерить расстояние")
 
-    # Фото
-    picam2 = Picamera2()
-    camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
-                                                      display="lores")
-    picam2.configure(camera_config)
-    picam2.start()
-    time.sleep(2)
-    picam2.capture_file("capture.jpg")
-    print("📷 Фото сделано")
+    # picam2 = Picamera2()
+    # config = picam2.create_still_configuration(lores={"size": (640, 480)}, display="lores")
+    # picam2.configure(config)
+    # picam2.start_preview(Preview.QTGL)
+    # picam2.start()
+    # time.sleep(2)
+    # picam2.capture_file("capture.jpg")
+    # print("📷 Фото сделано")
 
-    # Обработка
-    image = cv2.imread("capture.jpg")
-    height, width = image.shape[:2]
+    image = cv2.imread("desk3.jpg")
+    cropped = image
+    height, width = cropped.shape[:2]
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 50, 150)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -141,10 +187,10 @@ try:
         if shape != FILTER_SHAPE:
             continue
 
-        print(f"[{i}] {shape} в пикселях: ({center_x}, {center_y})")
+        print(f"\n[{i}] {shape} в пикселях: ({center_x}, {center_y})")
 
         dx_pixels = center_x - (width / 2)
-        dy_pixels = center_y - (height / 2)
+        dy_pixels = height - center_y
 
         dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
         dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
@@ -152,14 +198,28 @@ try:
         angle_x = degrees(atan(dx_cm / distance))
         angle_y = degrees(atan(dy_cm / distance))
 
-        print(f" -> Поворот моторов X: {angle_x:.2f}°, Y: {angle_y:.2f}°")
+        print(f" ➔ Поворот X: {angle_x:.2f}°, Y: {angle_y:.2f}°")
 
-        rotate_motor(angle_x, angle_y)
+        steps_x, steps_y = rotate_motor(angle_x, angle_y)
         time.sleep(2)
 
-        print("   ↩️ Возврат к центру")
-        rotate_motor(-angle_x, -angle_y)
-        cv2.imwrite("cut.png", image)
+        # Возврат
+        print(" ↩️ Возврат к центру")
+
+        GPIO.output(DIR_X, GPIO.LOW if angle_x > 0 else GPIO.HIGH)
+        GPIO.output(DIR_Y, GPIO.LOW if angle_y > 0 else GPIO.HIGH)
+
+        for _ in range(max(steps_x, steps_y)):
+            if _ < steps_x:
+                GPIO.output(STEP_X, GPIO.HIGH)
+                time.sleep(STEP_DELAY)
+                GPIO.output(STEP_X, GPIO.LOW)
+                time.sleep(STEP_DELAY)
+            if _ < steps_y:
+                GPIO.output(STEP_Y, GPIO.HIGH)
+                time.sleep(STEP_DELAY)
+                GPIO.output(STEP_Y, GPIO.LOW)
+                time.sleep(STEP_DELAY)
 
 finally:
     GPIO.output(DIR_X, GPIO.LOW)

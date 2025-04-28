@@ -1,179 +1,215 @@
-import tflite_runtime.interpreter as tflite
-import numpy as np
-import cv2
-from picamera2 import Picamera2, Preview
+import RPi.GPIO as GPIO
 import time
-picam2 = Picamera2()
-camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
-                                                  display="lores")
-picam2.configure(camera_config)
-picam2.start_preview(Preview.QTGL)
-picam2.start()
+import cv2
+import numpy as np
+from picamera2 import Picamera2, Preview
+from math import atan, degrees
+
 time.sleep(2)
-picam2.capture_file("test.jpg")
-# cut
-image_path = "test.jpg"
-# Функция для определения типа фигуры
+# === НАСТРОЙКИ === #
+BOARD_WIDTH_CM = 275   # Ширина доски в см
+BOARD_HEIGHT_CM = 100  # Высота доски в см
+STEP_ANGLE = 0.32   # градуса на шаг
+STEP_DELAY = 0.001
+MIN_CONTOUR_AREA = 500
+FILTER_SHAPE = "Circle"
+
+# Пины ультразвукового датчика
+TRIG = 4
+ECHO = 17
+
+# Пины моторов
+DIR_X = 21
+STEP_X = 20
+DIR_Y = 7
+STEP_Y = 1
+
+# Ограничения по углам моторов
+MAX_X_ANGLE = 45
+MAX_Y_ANGLE = 45
+
+# === НАСТРОЙКА GPIO === #
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+GPIO.setup(TRIG, GPIO.OUT)
+GPIO.setup(ECHO, GPIO.IN)
+GPIO.setup(DIR_X, GPIO.OUT)
+GPIO.setup(STEP_X, GPIO.OUT)
+GPIO.setup(DIR_Y, GPIO.OUT)
+GPIO.setup(STEP_Y, GPIO.OUT)
+
+# === УЛЬТРАЗВУК === #
+def measure_distance():
+    GPIO.output(TRIG, False)
+    time.sleep(0.05)
+    GPIO.output(TRIG, True)
+    time.sleep(0.00001)
+    GPIO.output(TRIG, False)
+
+    timeout = time.time() + 1
+    while GPIO.input(ECHO) == 0:
+        start = time.time()
+        if start > timeout:
+            return None
+
+    timeout = time.time() + 0.02
+    while GPIO.input(ECHO) == 1:
+        stop = time.time()
+        if stop > timeout:
+            return None
+
+    elapsed = stop - start
+    return (elapsed * 34300) / 2
+
+# === МОТОРЫ === #
+# def rotate_motor(degree_x, degree_y):
+#     degree_x = max(-MAX_X_ANGLE, min(MAX_X_ANGLE, degree_x))
+#     degree_y = max(-MAX_Y_ANGLE, min(MAX_Y_ANGLE, degree_y))
+#
+#     steps_x = round(abs(degree_x) / STEP_ANGLE)
+#     steps_y = round(abs(degree_y) / STEP_ANGLE)
+#
+#     if steps_x == 0 and steps_y == 0:
+#         print("⚠️ Шагов слишком мало, пропускаем поворот")
+#         return
+#
+#     print(f"   🔁 Шагов X: {steps_x}, Y: {steps_y}")
+#
+#     GPIO.output(DIR_X, GPIO.HIGH if degree_x > 0 else GPIO.LOW)
+#     GPIO.output(DIR_Y, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
+#
+#     for step in range(max(steps_x, steps_y)):
+#         if step < steps_x:
+#             GPIO.output(STEP_X, GPIO.HIGH)
+#         if step < steps_y:
+#             GPIO.output(STEP_Y, GPIO.HIGH)
+#         time.sleep(STEP_DELAY)
+#         GPIO.output(STEP_X, GPIO.LOW)
+#         GPIO.output(STEP_Y, GPIO.LOW)
+#         time.sleep(STEP_DELAY)
+def rotate_motor(degree_x, degree_y):
+    # Ограничиваем углы, чтобы не выйти за физические пределы
+    degree_x = max(-MAX_X_ANGLE, min(MAX_X_ANGLE, degree_x))
+    degree_y = max(0, min(MAX_Y_ANGLE, degree_y))  # Только вверх!
+
+    steps_x = round(abs(degree_x) / STEP_ANGLE)
+    steps_y = round(abs(degree_y) / STEP_ANGLE)
+
+    if steps_x == 0 and steps_y == 0:
+        print("⚠️ Шагов слишком мало, пропускаем поворот")
+        return
+
+    print(f"   🔁 Шагов X: {steps_x}, Y: {steps_y}")
+
+    # Определяем направления
+    GPIO.output(DIR_X, GPIO.HIGH if degree_x > 0 else GPIO.LOW)
+    GPIO.output(DIR_Y, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
+
+    # Сначала крутим X
+    for _ in range(steps_x):
+        GPIO.output(STEP_X, GPIO.HIGH)
+        time.sleep(STEP_DELAY)
+        GPIO.output(STEP_X, GPIO.LOW)
+        time.sleep(STEP_DELAY)
+
+    # Потом крутим Y
+    for _ in range(steps_y):
+        GPIO.output(STEP_Y, GPIO.HIGH)
+        time.sleep(STEP_DELAY)
+        GPIO.output(STEP_Y, GPIO.LOW)
+        time.sleep(STEP_DELAY)
+
+
+
+# === ОПРЕДЕЛЕНИЕ ФИГУР === #
 def detect_shape(contour):
     approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
     sides = len(approx)
-
     if sides == 3:
         return "Triangle"
     elif sides == 4:
         return "Square"
     elif sides > 4:
         return "Circle"
+    return "Unknown"
+
+# === ГЛАВНАЯ ЛОГИКА === #
+try:
+    distance = 300 #measure_distance()
+    if distance:
+        print(f"\n📏 Расстояние до доски: {distance:.2f} см")
     else:
-        return "Unknown"
+        raise Exception("Не удалось измерить расстояние")
 
-# Загружаем изображение
-# image_path = "2shapes.png"
-image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    # Фото
+    # picam2 = Picamera2()
+    # camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
+    #                                                   display="lores")
+    # picam2.configure(camera_config)
+    # picam2.start()
+    # time.sleep(2)
+    # picam2.capture_file("capture.jpg")
+    # print("📷 Фото сделано")
+    # Обработка
+    image = cv2.imread("red.png")
+    height, width = image.shape[:2]
 
-# Преобразуем в градации серого
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-# Применяем размытие
-blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    valid_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > MIN_CONTOUR_AREA]
 
-# Поиск границ с помощью Canny
-edges = cv2.Canny(blurred, 50, 150)
+    print(f"🔍 Найдено фигур: {len(valid_contours)}")
 
-# Находим контуры
-contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-if not contours:
-    raise ValueError("Фигуры не найдены!")
-
-# Минимальная площадь контура (чтобы исключить шум)
-MIN_CONTOUR_AREA = 500
-
-# Оставляем только контуры, которые больше MIN_CONTOUR_AREA
-valid_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > MIN_CONTOUR_AREA]
-
-# Количество найденных фигур
-shape_count = len(valid_contours)
-print(f"Количество найденных фигур: {shape_count}")
-
-# Открываем файл для записи координат
-with open("shapes.txt", "w") as file:
-    file.write(f"Количество найденных фигур: {shape_count}\n")
-
-    # Перебираем все найденные фигуры
     for i, contour in enumerate(valid_contours, 1):
-        # Определяем тип фигуры
-        shape_name = detect_shape(contour)
-
-        # Получаем координаты ограничивающего прямоугольника
         x, y, w, h = cv2.boundingRect(contour)
+        center_x = x + w // 2
+        center_y = y + h // 2
+        shape = detect_shape(contour)
 
-        # Записываем координаты и тип фигуры в файл
-        file.write(f"{i}. {shape_name}: x={x}, y={y}, w={w}, h={h}\n")
+        if shape != FILTER_SHAPE:
+            continue
 
-        # Рисуем контур
-        cv2.drawContours(image, [contour], -1, (0, 255, 0), 2)
+        print(f"\n[{i}] {shape}")
+        print(f" Центр фигуры в пикселях: ({center_x}, {center_y})")
 
-        # Вычисляем центр фигуры
-        M = cv2.moments(contour)
-        if M["m00"] != 0:
-            center_x = int(M["m10"] / M["m00"])
-            center_y = int(M["m01"] / M["m00"])
-            cv2.circle(image, (center_x, center_y), 5, (255, 0, 0), -1)  # Отмечаем центр
+        # --- Вычисление отклонений ---
+        dx_pixels = center_x - (width / 2)
+        dy_pixels = height - center_y
 
-print("Координаты сохранены в 'shapes.txt'")
+        print(f" dx_pixels: {dx_pixels}")
+        print(f" dy_pixels: {dy_pixels}")
 
-# Сохраняем изображение с выделенными фигурами
-cv2.imwrite("output_with_all_shapes.jpg", image)
-print("Фигуры успешно найдены и сохранены в 'output_with_all_shapes.jpg'")
+        dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
+        dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
 
-# === ОСТАЛЬНАЯ ЧАСТЬ КОДА ДЛЯ ОБРАБОТКИ В TFLITE ===
+        print(f" dx_cm: {dx_cm:.2f} см")
+        print(f" dy_cm: {dy_cm:.2f} см")
 
-# Загружаем TFLite модель
-model_path = "model.tflite"
-interpreter = tflite.Interpreter(model_path=model_path)
-interpreter.allocate_tensors()
+        # --- Вычисление углов ---
+        angle_x = degrees(atan(dx_cm / distance))
+        angle_y = degrees(atan(dy_cm / distance))
 
-# Получаем информацию о входных и выходных данных модели
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+        # ⚠️ Если лазер по X уходит в неправильную сторону, здесь инвертируем
+        # angle_x = -degrees(atan(dx_cm / distance))
 
-# Загружаем и подготавливаем изображение для модели
-image_path = "clean_cut.png"
-image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        print(f" Расчёт углов:")
+        print(f"  ➔ Угол X: {angle_x:.2f}°")
+        print(f"  ➔ Угол Y: {angle_y:.2f}°")
 
-# Преобразуем в HSV
-hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        # --- Поворот на фигуру ---
+        print(" 🔄 Поворачиваем на фигуру")
+        rotate_motor(angle_x, angle_y)
 
-# Определяем диапазоны цветов
-color_ranges = {
-    "red": [(0, 100, 100), (10, 255, 255), (160, 100, 100), (180, 255, 255)],
-    "green": [(40, 40, 40), (90, 255, 255)],
-    "blue": [(90, 50, 50), (140, 255, 255)]
-}
+        time.sleep(1) 
 
-# Создаём маску по цветам
-mask = np.zeros_like(hsv[:, :, 0])
-for color, ranges in color_ranges.items():
-    for i in range(0, len(ranges), 2):
-        lower, upper = ranges[i], ranges[i + 1]
-        mask |= cv2.inRange(hsv, np.array(lower), np.array(upper))
 
-# Ищем контуры на маске
-contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-if len(contours) == 0:
-    raise ValueError("Фигуры не найдены!")
-
-# Оставляем только контуры, которые больше MIN_CONTOUR_AREA
-contours = [cnt for cnt in contours if cv2.contourArea(cnt) > MIN_CONTOUR_AREA]
-if not contours:
-    raise ValueError("Нет достаточно больших фигур!")
-
-# Создаём маску для выделенной фигуры
-shape_mask = np.zeros_like(mask)
-cv2.drawContours(shape_mask, contours, -1, 255, thickness=cv2.FILLED)
-
-# Извлекаем фигуру
-extracted = cv2.bitwise_and(image, image, mask=shape_mask)
-
-# Получаем bounding box и вырезаем фигуру
-x, y, w, h = cv2.boundingRect(contours[0])
-cropped_shape = extracted[y:y + h, x:x + w]
-
-# Добавляем альфа-канал
-b, g, r = cv2.split(cropped_shape)
-alpha = shape_mask[y:y + h, x:x + w]
-cutout = cv2.merge([b, g, r, alpha])
-
-# Сохраняем результат
-cv2.imwrite("cut.png", cutout)
-
-# Подготавливаем изображение для модели
-input_size = input_details[0]['shape'][1]
-aspect_ratio = max(w, h) / input_size
-new_w, new_h = int(w / aspect_ratio), int(h / aspect_ratio)
-cropped_resized = cv2.resize(cropped_shape, (new_w, new_h))
-
-# Создаём квадратное изображение
-padded = np.ones((input_size, input_size, 3), dtype=np.uint8) * 255
-x_offset = (input_size - new_w) // 2
-y_offset = (input_size - new_h) // 2
-padded[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = cropped_resized
-
-# Нормализация и добавление размерности batch
-image_input = padded.astype(np.float32) / 255.0
-image_input = np.expand_dims(image_input, axis=0)
-
-# Запуск модели
-interpreter.set_tensor(input_details[0]['index'], image_input)
-interpreter.invoke()
-output_data = interpreter.get_tensor(output_details[0]['index'])
-
-# Интерпретация результатов
-class_labels = ["Circle", "Square"]
-confidence_scores = output_data[0][:3]
-predicted_class = np.argmax(confidence_scores)
-
-# Вывод результатов
-print(f"Confidence scores: {confidence_scores}")
-print(class_labels[predicted_class])
+finally:
+    GPIO.output(DIR_X, GPIO.LOW)
+    GPIO.output(DIR_Y, GPIO.HIGH)
+    GPIO.output(STEP_X, GPIO.LOW)
+    GPIO.output(STEP_Y, GPIO.HIGH)
+    print("\n✅ Работа завершена, GPIO очищены")
