@@ -5,9 +5,9 @@ import numpy as np
 from picamera2 import Picamera2, Preview
 from math import atan, degrees
 
-time.sleep(2)
+
 # === НАСТРОЙКИ === #
-BOARD_WIDTH_CM = 275   # Ширина доски в см
+BOARD_WIDTH_CM = 250  # Ширина доски в см
 BOARD_HEIGHT_CM = 100  # Высота доски в см
 STEP_ANGLE = 0.32   # градуса на шаг
 STEP_DELAY = 0.001
@@ -25,8 +25,8 @@ DIR_Y = 7
 STEP_Y = 1
 
 # Ограничения по углам моторов
-MAX_X_ANGLE = 45
-MAX_Y_ANGLE = 45
+MAX_X_ANGLE = 30
+MAX_Y_ANGLE = 10
 
 # === НАСТРОЙКА GPIO === #
 GPIO.setmode(GPIO.BCM)
@@ -153,7 +153,7 @@ try:
     # print("📷 Фото сделано")
     # Обработка
     image = cv2.imread("red.png")
-    height, width = image.shape[:2]
+    height, width = 1920, 1080
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -163,7 +163,6 @@ try:
     valid_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > MIN_CONTOUR_AREA]
 
     print(f"🔍 Найдено фигур: {len(valid_contours)}")
-
     for i, contour in enumerate(valid_contours, 1):
         x, y, w, h = cv2.boundingRect(contour)
         center_x = x + w // 2
@@ -173,38 +172,83 @@ try:
         if shape != FILTER_SHAPE:
             continue
 
-        print(f"\n[{i}] {shape}")
-        print(f" Центр фигуры в пикселях: ({center_x}, {center_y})")
+        print(f"\n[{i}] {shape} в пикселях: ({center_x}, {center_y})")
 
-        # --- Вычисление отклонений ---
         dx_pixels = center_x - (width / 2)
         dy_pixels = height - center_y
-
-        print(f" dx_pixels: {dx_pixels}")
-        print(f" dy_pixels: {dy_pixels}")
 
         dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
         dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
 
-        print(f" dx_cm: {dx_cm:.2f} см")
-        print(f" dy_cm: {dy_cm:.2f} см")
-
-        # --- Вычисление углов ---
         angle_x = degrees(atan(dx_cm / distance))
         angle_y = degrees(atan(dy_cm / distance))
 
-        # ⚠️ Если лазер по X уходит в неправильную сторону, здесь инвертируем
-        # angle_x = -degrees(atan(dx_cm / distance))
+        print(f" ➔ Поворот X: {angle_x:.2f}°, Y: {angle_y:.2f}°")
 
-        print(f" Расчёт углов:")
-        print(f"  ➔ Угол X: {angle_x:.2f}°")
-        print(f"  ➔ Угол Y: {angle_y:.2f}°")
+        steps_x, steps_y = rotate_motor(angle_x, angle_y)
+        time.sleep(2)
 
-        # --- Поворот на фигуру ---
-        print(" 🔄 Поворачиваем на фигуру")
-        rotate_motor(angle_x, angle_y)
+        # Возврат
+        print(" ↩️ Возврат к центру")
 
-        time.sleep(1) 
+        GPIO.output(DIR_X, GPIO.LOW if angle_x > 0 else GPIO.HIGH)
+        GPIO.output(DIR_Y, GPIO.LOW if angle_y > 0 else GPIO.HIGH)
+
+        for _ in range(max(steps_x, steps_y)):
+            if _ < steps_x:
+                GPIO.output(STEP_X, GPIO.HIGH)
+                time.sleep(STEP_DELAY)
+                GPIO.output(STEP_X, GPIO.LOW)
+                time.sleep(STEP_DELAY)
+            if _ < steps_y:
+                GPIO.output(STEP_Y, GPIO.HIGH)
+                time.sleep(STEP_DELAY)
+                GPIO.output(STEP_Y, GPIO.LOW)
+                time.sleep(STEP_DELAY)
+
+    # for i, contour in enumerate(valid_contours, 1):
+    #     x, y, w, h = cv2.boundingRect(contour)
+    #     center_x = x + w // 2
+    #     center_y = y + h // 2
+    #     shape = detect_shape(contour)
+    #
+    #     if shape != FILTER_SHAPE:
+    #         continue
+    #
+    #     print(f"\n[{i}] {shape}")
+    #     print(f" Центр фигуры в пикселях: ({center_x}, {center_y})")
+    #
+    #     # --- Вычисление отклонений ---
+    #     dx_pixels = center_x - (width / 2)
+    #     dy_pixels = height - center_y
+    #
+    #     print(f" dx_pixels: {dx_pixels}")
+    #     print(f" dy_pixels: {dy_pixels}")
+    #
+    #     dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
+    #     dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
+    #
+    #     print(f" dx_cm: {dx_cm:.2f} см")
+    #     print(f" dy_cm: {dy_cm:.2f} см")
+    #
+    #     # --- Вычисление углов ---
+    #     angle_x = degrees(atan(dx_cm / distance))
+    #     angle_y = degrees(atan(dy_cm / distance))
+    #
+    #     # ⚠️ Если лазер по X уходит в неправильную сторону, здесь инвертируем
+    #     # angle_x = -degrees(atan(dx_cm / distance))
+    #
+    #     print(f" Расчёт углов:")
+    #     print(f"  ➔ Угол X: {angle_x:.2f}°")
+    #     print(f"  ➔ Угол Y: {angle_y:.2f}°")
+    #
+    #     # --- Поворот на фигуру ---
+    #     print(" 🔄 Поворачиваем на фигуру")
+    #     rotate_motor(angle_x, angle_y)
+    #
+    #
+    #     time.sleep(2)
+
 
 
 finally:
