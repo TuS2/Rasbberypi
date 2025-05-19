@@ -6,8 +6,8 @@ from picamera2 import Picamera2, Preview
 from math import atan, degrees
 
 # === НАСТРОЙКИ === #
-BOARD_WIDTH_CM = 275   # Ширина доски в см
-BOARD_HEIGHT_CM = 85  # Высота доски в см
+BOARD_WIDTH_CM = 166   # Ширина доски в см
+BOARD_HEIGHT_CM = 95  # Высота доски в см
 STEP_ANGLE = 0.32727   # градуса на шаг
 STEP_DELAY = 0.001
 MIN_CONTOUR_AREA = 500
@@ -33,7 +33,7 @@ STEP_Y = 1
 
 # Ограничения по углам моторов
 MAX_X_ANGLE = 90
-MAX_Y_ANGLE = 10
+MAX_Y_ANGLE = 30
 
 # === НАСТРОЙКА GPIO === #
 GPIO.setmode(GPIO.BCM)
@@ -98,7 +98,7 @@ def measure_distance():
 def rotate_motor(degree_x, degree_y):
     # Ограничиваем углы, чтобы не выйти за физические пределы
     degree_x = max(-MAX_X_ANGLE, min(MAX_X_ANGLE, degree_x))
-    degree_y = max(0, min(MAX_Y_ANGLE, degree_y))  # Только вверх!
+    degree_y = max(-MAX_Y_ANGLE, min(MAX_Y_ANGLE, degree_y)) # Только вверх!
 
     steps_x = round(abs(degree_x) / STEP_ANGLE)
     steps_y = round(abs(degree_y) / STEP_ANGLE)
@@ -111,19 +111,26 @@ def rotate_motor(degree_x, degree_y):
 
     # Определяем направления
     GPIO.output(DIR_X, GPIO.HIGH if degree_x > 0 else GPIO.LOW)
-    GPIO.output(DIR_Y, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
+    GPIO.output(DIR_Y, GPIO.HIGH if degree_x < 0 else GPIO.LOW)
 
     # Сначала крутим X
     for _ in range(steps_x):
         GPIO.output(STEP_X, GPIO.HIGH)
+        GPIO.output(STEP_Y, GPIO.HIGH)
         time.sleep(STEP_DELAY)
         GPIO.output(STEP_X, GPIO.LOW)
+        GPIO.output(STEP_Y, GPIO.LOW)
         time.sleep(STEP_DELAY)
+
+    GPIO.output(DIR_X, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
+    GPIO.output(DIR_Y, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
 
     # Потом крутим Y
     for _ in range(steps_y):
+        GPIO.output(STEP_X, GPIO.HIGH)
         GPIO.output(STEP_Y, GPIO.HIGH)
         time.sleep(STEP_DELAY)
+        GPIO.output(STEP_X, GPIO.LOW)
         GPIO.output(STEP_Y, GPIO.LOW)
         time.sleep(STEP_DELAY)
 
@@ -141,6 +148,18 @@ def detect_shape(contour):
         return "Circle"
     return "Unknown"
 
+
+# rotate_motor(20, 0)
+# time.sleep(2)
+# rotate_motor(10, 20)
+# time.sleep(2)
+# rotate_motor(-50, -40)
+# time.sleep(2)
+# rotate_motor(20, 20)
+# while True:
+#     pass
+
+
 # === ГЛАВНАЯ ЛОГИКА === #
 try:
     distance = 300 #measure_distance()
@@ -150,16 +169,16 @@ try:
         raise Exception("Не удалось измерить расстояние")
 
     # Фото
-    picam2 = Picamera2()
-    camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
-                                                      display="lores")
-    picam2.configure(camera_config)
-    picam2.start()
-    time.sleep(2)
-    picam2.capture_file("capture.jpg")
-    print("📷 Фото сделано")
+    # picam2 = Picamera2()
+    # camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
+    #                                                   display="lores")
+    # picam2.configure(camera_config)
+    # picam2.start()
+    # time.sleep(2)
+    # picam2.capture_file("capture.jpg")
+    # print("📷 Фото сделано")
     # Обработка
-    image = cv2.imread("capture.jpg")
+    image = cv2.imread("red.png")
     height, width = image.shape[:2]
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -192,6 +211,8 @@ try:
 
         dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
         dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
+        # dx_cm = 0
+        # dy_cm = 10
 
         print(f" dx_cm: {dx_cm:.2f} см")
         print(f" dy_cm: {dy_cm:.2f} см")
@@ -207,11 +228,16 @@ try:
         print(f"  ➔ Угол X: {angle_x:.2f}°")
         print(f"  ➔ Угол Y: {angle_y:.2f}°")
 
+
         # --- Поворот на фигуру ---
         print(" 🔄 Поворачиваем на фигуру")
         rotate_motor(angle_x, angle_y)
 
-        time.sleep(1)
+        time.sleep(2)
+
+        rotate_motor(-angle_x, -angle_y)
+
+        time.sleep(2)
 
 
 finally:
