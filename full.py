@@ -70,31 +70,6 @@ def measure_distance():
     return (elapsed * 34300) / 2
 
 # === МОТОРЫ === #
-# def rotate_motor(degree_x, degree_y):
-#     degree_x = max(-MAX_X_ANGLE, min(MAX_X_ANGLE, degree_x))
-#     degree_y = max(-MAX_Y_ANGLE, min(MAX_Y_ANGLE, degree_y))
-#
-#     steps_x = round(abs(degree_x) / STEP_ANGLE)
-#     steps_y = round(abs(degree_y) / STEP_ANGLE)
-#
-#     if steps_x == 0 and steps_y == 0:
-#         print("⚠️ Шагов слишком мало, пропускаем поворот")
-#         return
-#
-#     print(f"   🔁 Шагов X: {steps_x}, Y: {steps_y}")
-#
-#     GPIO.output(DIR_X, GPIO.HIGH if degree_x > 0 else GPIO.LOW)
-#     GPIO.output(DIR_Y, GPIO.HIGH if degree_y > 0 else GPIO.LOW)
-#
-#     for step in range(max(steps_x, steps_y)):
-#         if step < steps_x:
-#             GPIO.output(STEP_X, GPIO.HIGH)
-#         if step < steps_y:
-#             GPIO.output(STEP_Y, GPIO.HIGH)
-#         time.sleep(STEP_DELAY)
-#         GPIO.output(STEP_X, GPIO.LOW)
-#         GPIO.output(STEP_Y, GPIO.LOW)
-#         time.sleep(STEP_DELAY)
 def rotate_motor(degree_x, degree_y):
     # Ограничиваем углы, чтобы не выйти за физические пределы
     degree_x = max(-MAX_X_ANGLE, min(MAX_X_ANGLE, degree_x))
@@ -149,34 +124,23 @@ def detect_shape(contour):
     return "Unknown"
 
 
-# rotate_motor(20, 0)
-# time.sleep(2)
-# rotate_motor(10, 20)
-# time.sleep(2)
-# rotate_motor(-50, -40)
-# time.sleep(2)
-# rotate_motor(20, 20)
-# while True:
-#     pass
-
-
 # === ГЛАВНАЯ ЛОГИКА === #
 try:
-    distance = 300 #measure_distance()
+    distance = measure_distance()
     if distance:
         print(f"\n📏 Расстояние до доски: {distance:.2f} см")
     else:
         raise Exception("Не удалось измерить расстояние")
 
     # Фото
-    # picam2 = Picamera2()
-    # camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
-    #                                                   display="lores")
-    # picam2.configure(camera_config)
-    # picam2.start()
-    # time.sleep(2)
-    # picam2.capture_file("capture.jpg")
-    # print("📷 Фото сделано")
+    picam2 = Picamera2()
+    camera_config = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)},
+                                                       display="lores")
+    picam2.configure(camera_config)
+    picam2.start()
+    time.sleep(2)
+    picam2.capture_file("capture.jpg")
+    print("📷 Фото сделано")
     # Обработка
     image = cv2.imread("red.png")
     height, width = image.shape[:2]
@@ -211,18 +175,12 @@ try:
 
         dx_cm = dx_pixels * (BOARD_WIDTH_CM / width)
         dy_cm = dy_pixels * (BOARD_HEIGHT_CM / height)
-        # dx_cm = 0
-        # dy_cm = 10
-
         print(f" dx_cm: {dx_cm:.2f} см")
         print(f" dy_cm: {dy_cm:.2f} см")
 
         # --- Вычисление углов ---
         angle_x = degrees(atan(dx_cm / distance))
         angle_y = degrees(atan(dy_cm / distance))
-
-        # ⚠️ Если лазер по X уходит в неправильную сторону, здесь инвертируем
-        # angle_x = -degrees(atan(dx_cm / distance))
 
         print(f" Расчёт углов:")
         print(f"  ➔ Угол X: {angle_x:.2f}°")
